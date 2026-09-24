@@ -10,6 +10,7 @@ const jobRoutes = require("./routes/jobRoutes");
 const applicationRoutes = require("./routes/applicationRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const aiRoutes = require("./routes/aiRoutes");
+const resumeRoutes = require("./routes/resumeRoutes");
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use("/api/jobs", jobRoutes);
 app.use("/api/applications", applicationRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/resume", resumeRoutes);
 
 
 // Home Route

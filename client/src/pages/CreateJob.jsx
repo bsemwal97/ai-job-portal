@@ -15,8 +15,55 @@ function CreateJob() {
   const [description, setDescription] = useState("");
 
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const navigate = useNavigate();
+
+  const handleGenerateDescription = async () => {
+
+    if (!title) {
+      alert("Add a job title first");
+      return;
+    }
+
+    try {
+
+      setGenerating(true);
+
+      const token = localStorage.getItem("token");
+
+      const response = await axios.post(
+        "http://localhost:5000/api/ai/generate-job-description",
+        {
+          title,
+          company,
+          jobType,
+          location,
+          skills: skills.split(",").map((s) => s.trim()).filter(Boolean),
+        },
+        {
+          headers: {
+            authorization: token,
+          },
+        }
+      );
+
+      setDescription(response.data.description);
+
+    } catch (error) {
+
+      console.log(
+        error.response?.data || error.message
+      );
+
+      alert("Could not generate description");
+
+    } finally {
+
+      setGenerating(false);
+
+    }
+  };
 
   const handleCreateJob = async (e) => {
 
@@ -163,6 +210,21 @@ function CreateJob() {
             }
             className="w-full border border-gray-300 rounded-lg px-4 py-3"
           />
+
+          <div className="flex justify-between items-center">
+            <label className="text-sm font-semibold text-gray-600">
+              Job Description
+            </label>
+
+            <button
+              type="button"
+              onClick={handleGenerateDescription}
+              disabled={generating}
+              className="text-sm border border-black px-3 py-1 rounded-lg"
+            >
+              {generating ? "Generating..." : "✨ Generate with AI"}
+            </button>
+          </div>
 
           <textarea
             placeholder="Job Description"

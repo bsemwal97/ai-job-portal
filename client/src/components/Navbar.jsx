@@ -99,12 +99,30 @@ function Navbar() {
           {token &&
             user?.role === "Candidate" && (
 
-            <Link
-              to="/my-applications"
-              className={activeLink("/my-applications")}
-            >
-              My Applications
-            </Link>
+            <>
+
+              <Link
+                to="/my-applications"
+                className={activeLink("/my-applications")}
+              >
+                My Applications
+              </Link>
+
+              <Link
+                to="/resume-builder"
+                className={activeLink("/resume-builder")}
+              >
+                Resume Builder
+              </Link>
+
+              <Link
+                to="/recommended-jobs"
+                className={activeLink("/recommended-jobs")}
+              >
+                AI Matches
+              </Link>
+
+            </>
 
           )}
 
@@ -220,15 +238,39 @@ function Navbar() {
           {token &&
             user?.role === "Candidate" && (
 
-            <Link
-              to="/my-applications"
-              className="block"
-              onClick={() =>
-                setMenuOpen(false)
-              }
-            >
-              My Applications
-            </Link>
+            <>
+
+              <Link
+                to="/my-applications"
+                className="block"
+                onClick={() =>
+                  setMenuOpen(false)
+                }
+              >
+                My Applications
+              </Link>
+
+              <Link
+                to="/resume-builder"
+                className="block"
+                onClick={() =>
+                  setMenuOpen(false)
+                }
+              >
+                Resume Builder
+              </Link>
+
+              <Link
+                to="/recommended-jobs"
+                className="block"
+                onClick={() =>
+                  setMenuOpen(false)
+                }
+              >
+                AI Matches
+              </Link>
+
+            </>
 
           )}
 

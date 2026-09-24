@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 
 function JobDetails() {
 
@@ -159,13 +159,35 @@ function JobDetails() {
         </div>
 
 
-        <button
-          type="button"
-          onClick={handleApply}
-          className="mt-8 bg-black text-white px-6 py-3 rounded-lg"
-        >
-          Apply Now
-        </button>
+        <div className="mt-8 flex flex-wrap gap-3">
+
+          <button
+            type="button"
+            onClick={handleApply}
+            className="bg-black text-white px-6 py-3 rounded-lg"
+          >
+            Apply Now
+          </button>
+
+          <Link to={`/jobs/${id}/cover-letter`}>
+            <button
+              type="button"
+              className="border border-black px-6 py-3 rounded-lg"
+            >
+              ✨ Generate Cover Letter
+            </button>
+          </Link>
+
+          <Link to={`/jobs/${id}/interview-prep`}>
+            <button
+              type="button"
+              className="border border-black px-6 py-3 rounded-lg"
+            >
+              ✨ Interview Prep
+            </button>
+          </Link>
+
+        </div>
 
       </div>
 

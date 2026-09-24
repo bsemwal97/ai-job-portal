@@ -12,6 +12,10 @@ import Jobs from "./pages/Jobs";
 import JobDetails from "./pages/JobDetails";
 import UploadResume from "./pages/UploadResume";
 import EditJob from "./pages/EditJob";
+import ResumeBuilder from "./pages/ResumeBuilder";
+import CoverLetter from "./pages/CoverLetter";
+import InterviewPrep from "./pages/InterviewPrep";
+import RecommendedJobs from "./pages/RecommendedJobs";
 
 
 function App() {
@@ -77,6 +81,42 @@ function App() {
           element={
             <ProtectedRoute>
               <EditJob />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/resume-builder"
+          element={
+            <ProtectedRoute>
+              <ResumeBuilder />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/jobs/:id/cover-letter"
+          element={
+            <ProtectedRoute>
+              <CoverLetter />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/jobs/:id/interview-prep"
+          element={
+            <ProtectedRoute>
+              <InterviewPrep />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/recommended-jobs"
+          element={
+            <ProtectedRoute>
+              <RecommendedJobs />
             </ProtectedRoute>
           }
         />
