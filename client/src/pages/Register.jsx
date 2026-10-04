@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import axios from "axios";
+import { API_BASE } from "../config";
 import { useNavigate } from "react-router-dom";
 
 function Register() {
@@ -56,10 +57,10 @@ function Register() {
       return;
     }
 
-    if (password.length < 6) {
+    if (password.length < 8) {
 
       setError(
-        "Password must be at least 6 characters"
+        "Password must be at least 8 characters"
       );
 
       passwordRef.current.focus();
@@ -73,7 +74,7 @@ function Register() {
       setLoading(true);
 
       await axios.post(
-        "http://localhost:5000/api/auth/register",
+        `${API_BASE}/api/auth/register`,
         {
           name,
           email,
@@ -195,7 +196,7 @@ function Register() {
 
             <p className="text-sm text-gray-500 mt-2">
               Password must contain at least
-              6 characters.
+              8 characters.
             </p>
 
           </div>

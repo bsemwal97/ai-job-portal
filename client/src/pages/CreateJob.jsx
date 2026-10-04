@@ -1,5 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
+import { API_BASE } from "../config";
 import { useNavigate } from "react-router-dom";
 
 function CreateJob() {
@@ -33,7 +34,7 @@ function CreateJob() {
       const token = localStorage.getItem("token");
 
       const response = await axios.post(
-        "http://localhost:5000/api/ai/generate-job-description",
+        `${API_BASE}/api/ai/generate-job-description`,
         {
           title,
           company,
@@ -76,7 +77,7 @@ function CreateJob() {
       const token = localStorage.getItem("token");
 
       const response = await axios.post(
-        "http://localhost:5000/api/jobs",
+        `${API_BASE}/api/jobs`,
         {
           title,
           company,

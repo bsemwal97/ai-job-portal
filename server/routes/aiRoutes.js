@@ -1,501 +1,591 @@
 const express = require("express");
-const OpenAI = require("openai");
 
 const authMiddleware = require("../middleware/authMiddleware");
+const { requireRole } = require("../middleware/authMiddleware");
+const validateObjectId = require("../middleware/validateObjectId");
 const Resume = require("../models/Resume");
 const Job = require("../models/Job");
+const Application = require("../models/Application");
+const {
+  askAI,
+  askAIForJSON,
+  aiErrorResponse,
+  resumeToText,
+  clip,
+  wrap,
+} = require("../utils/ai");
+
+const path = require("path");
+const User = require("../models/User");
+const { extractResumeText } = require("../utils/resumeFile");
 
 const router = express.Router();
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 
-const AI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+// Reads the text of the resume file the logged-in candidate uploaded
+async function getUploadedResumeText(userId) {
+  const user = await User.findById(userId);
 
+  if (!user?.resumeFile?.filename) {
+    const err = new Error("Upload your resume first (Upload Resume page)");
+    err.status = 400;
+    throw err;
+  }
 
-// Small helper so every route doesn't repeat the same call shape
-async function askAI(system, user) {
-
-  const completion = await openai.chat.completions.create({
-    model: AI_MODEL,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-  });
-
-  return completion.choices[0].message.content;
+  return extractResumeText(path.join(UPLOAD_DIR, path.basename(user.resumeFile.filename)));
 }
 
 
-// Helper: ask the model for strict JSON and parse it safely
-async function askAIForJSON(system, user) {
+// Every AI route needs a logged-in user
+router.use(authMiddleware);
 
-  const raw = await askAI(
-    `${system} Respond with ONLY valid JSON. No markdown fences, no commentary.`,
-    user
+// Small wrapper: catches errors from handlers and maps them with aiErrorResponse
+const handle = (fn) => async (req, res) => {
+  try {
+    await fn(req, res);
+  } catch (error) {
+    aiErrorResponse(res, error);
+  }
+};
+
+const asList = (value) => (Array.isArray(value) ? value.map(String) : []);
+
+
+// ANALYZE RESUME (free text)
+router.post("/analyze-resume", handle(async (req, res) => {
+  const { resumeText } = req.body;
+
+  if (!resumeText) {
+    return res.status(400).json({ message: "resumeText is required" });
+  }
+
+  const feedback = await askAI(
+    "You are an expert resume reviewer and career coach. Give specific, prioritised, actionable feedback.",
+    wrap("Resume", resumeText),
+    { maxTokens: 1500 }
   );
 
-  const cleaned = raw
-    .trim()
-    .replace(/^```json/i, "")
-    .replace(/^```/, "")
-    .replace(/```$/, "")
-    .trim();
-
-  return JSON.parse(cleaned);
-}
-
-
-// ANALYZE RESUME (existing feature, kept as-is)
-router.post(
-  "/analyze-resume",
-  authMiddleware,
-  async (req, res) => {
-
-    try {
-
-      const { resumeText } = req.body;
-
-      if (!resumeText) {
-        return res.status(400).json({
-          message: "resumeText is required",
-        });
-      }
-
-      const feedback = await askAI(
-        "You are an expert resume reviewer and career coach.",
-        `Analyze this resume and give detailed improvement suggestions:\n\n${resumeText}`
-      );
-
-      res.json({ feedback });
-
-    } catch (error) {
-
-      res.status(500).json({
-        message: error.message,
-      });
-
-    }
-  }
-);
+  res.json({ feedback });
+}));
 
 
 // GENERATE PROFESSIONAL SUMMARY
-// body: { targetRole, yearsOfExperience, skills: [], highlights }
-router.post(
-  "/generate-summary",
-  authMiddleware,
-  async (req, res) => {
+router.post("/generate-summary", handle(async (req, res) => {
+  const { targetRole, yearsOfExperience, skills, highlights } = req.body;
 
-    try {
-
-      const {
-        targetRole,
-        yearsOfExperience,
-        skills,
-        highlights,
-      } = req.body;
-
-      if (!targetRole) {
-        return res.status(400).json({
-          message: "targetRole is required",
-        });
-      }
-
-      const summary = await askAI(
-        "You are an expert resume writer. Write concise, ATS-friendly resume summaries. " +
-          "Return 2-3 sentences only, no bullet points, no headings, no quotes.",
-        `Write a professional resume summary for a candidate targeting the role "${targetRole}". ` +
-          `Years of experience: ${yearsOfExperience || "not specified"}. ` +
-          `Key skills: ${(skills || []).join(", ") || "not specified"}. ` +
-          `Notable highlights: ${highlights || "none provided"}.`
-      );
-
-      res.json({ summary: summary.trim() });
-
-    } catch (error) {
-
-      res.status(500).json({
-        message: error.message,
-      });
-
-    }
+  if (!targetRole) {
+    return res.status(400).json({ message: "targetRole is required" });
   }
+
+  const summary = await askAI(
+    "You are an expert resume writer. Write concise, ATS-friendly resume summaries. " +
+      "Return 2-3 sentences only, no bullet points, no headings, no quotes. Do not invent facts.",
+    `Target role: ${clip(targetRole, 100)}\n` +
+      `Years of experience: ${clip(yearsOfExperience, 20) || "not specified"}\n` +
+      `Key skills: ${asList(skills).join(", ").slice(0, 500) || "not specified"}\n` +
+      wrap("Notable highlights", highlights || "none provided", 1000),
+    { maxTokens: 250 }
+  );
+
+  res.json({ summary: summary.trim() });
+}));
+
+
+// IMPROVE / REWRITE TEXT
+router.post("/improve-text", handle(async (req, res) => {
+  const { text, context } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ message: "text is required" });
+  }
+
+  const improved = await askAI(
+    "You are an expert resume editor. Rewrite the given text to be more impactful, concise, " +
+      "and ATS-friendly with strong action verbs. Only quantify impact if numbers are given in the " +
+      "original — never invent metrics. Return only the rewritten text.",
+    `Context: ${clip(context, 200) || "resume content"}\n\n${wrap("Original text", text, 3000)}`,
+    { maxTokens: 500 }
+  );
+
+  res.json({ improved: improved.trim() });
+}));
+
+
+// GENERATE ACHIEVEMENT BULLETS
+router.post("/generate-bullets", handle(async (req, res) => {
+  const { role, company, responsibilities } = req.body;
+
+  if (!role) {
+    return res.status(400).json({ message: "role is required" });
+  }
+
+  const n = Math.min(Math.max(parseInt(req.body.count, 10) || 4, 1), 8);
+
+  const result = await askAIForJSON(
+    "You are an expert resume writer. Generate resume achievement bullet points. Each bullet starts " +
+      "with a strong action verb. Use only facts the candidate gave; do not invent numbers. " +
+      `Return {"bullets": [...]} with exactly ${n} strings.`,
+    `Role: ${clip(role, 100)}\nCompany: ${clip(company, 100) || "not specified"}\n` +
+      wrap("Responsibilities / notes from the candidate", responsibilities || "not provided", 2000)
+  );
+
+  res.json({ bullets: asList(result.bullets) });
+}));
+
+
+// MATCH RESUME TEXT AGAINST A JOB DESCRIPTION (ATS style)
+const MATCH_SYSTEM =
+  "You are an ATS (Applicant Tracking System) resume matching engine. Compare the resume against " +
+  "the job description. Return a JSON object with exactly these keys: " +
+  '"score" (integer 0-100), "matchedKeywords" (array of strings: important job keywords the resume covers), ' +
+  '"missingKeywords" (array of strings: important job keywords missing), ' +
+  '"suggestions" (array of 3-5 short actionable strings).';
+
+const cleanMatch = (r) => ({
+  score: Math.min(Math.max(Math.round(Number(r.score)) || 0, 0), 100),
+  matchedKeywords: asList(r.matchedKeywords),
+  missingKeywords: asList(r.missingKeywords),
+  suggestions: asList(r.suggestions),
+});
+
+router.post("/match-job", handle(async (req, res) => {
+  const { resumeText, jobDescription } = req.body;
+
+  if (!resumeText || !jobDescription) {
+    return res.status(400).json({ message: "resumeText and jobDescription are required" });
+  }
+
+  const result = await askAIForJSON(
+    MATCH_SYSTEM,
+    `${wrap("Job description", jobDescription, 5000)}\n\n${wrap("Resume", resumeText, 6000)}`
+  );
+
+  res.json(cleanMatch(result));
+}));
+
+
+// NEW: MATCH MY SAVED RESUME AGAINST A SPECIFIC JOB (one click from the job page)
+router.post(
+  "/job-match/:jobId",
+  requireRole("Candidate"),
+  validateObjectId("jobId"),
+  handle(async (req, res) => {
+    const [job, resume] = await Promise.all([
+      Job.findById(req.params.jobId),
+      Resume.findOne({ user: req.user.id }),
+    ]);
+
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    if (!resume || !resume.skills?.length) {
+      return res.status(400).json({ message: "Save your resume in the Resume Builder first" });
+    }
+
+    const jobText =
+      `${job.title} at ${job.company}\nSkills: ${(job.skills || []).join(", ")}\n${job.description}`;
+
+    const result = await askAIForJSON(
+      MATCH_SYSTEM,
+      `${wrap("Job description", jobText, 5000)}\n\n${wrap("Resume", resumeToText(resume), 6000)}`
+    );
+
+    res.json(cleanMatch(result));
+  })
 );
 
 
-// IMPROVE / REWRITE A PIECE OF TEXT (summary, bullet, project description, etc.)
-// body: { text, context }
-router.post(
-  "/improve-text",
-  authMiddleware,
-  async (req, res) => {
+// GENERATE A JOB DESCRIPTION (recruiter)
+router.post("/generate-job-description", requireRole("Recruiter"), handle(async (req, res) => {
+  const { title, company, jobType, location, skills, notes } = req.body;
 
-    try {
-
-      const { text, context } = req.body;
-
-      if (!text) {
-        return res.status(400).json({
-          message: "text is required",
-        });
-      }
-
-      const improved = await askAI(
-        "You are an expert resume editor. Rewrite the given text to be more impactful, " +
-          "concise, and ATS-friendly. Use strong action verbs and quantify impact where " +
-          "plausible. Return only the rewritten text, nothing else.",
-        `Context: ${context || "resume content"}\n\nOriginal text:\n${text}`
-      );
-
-      res.json({ improved: improved.trim() });
-
-    } catch (error) {
-
-      res.status(500).json({
-        message: error.message,
-      });
-
-    }
+  if (!title) {
+    return res.status(400).json({ message: "title is required" });
   }
-);
 
+  const description = await askAI(
+    "You are an expert technical recruiter. Write clear, well-structured job descriptions with a short " +
+      "intro, a 'Responsibilities' section, and a 'Requirements' section, using plain text with simple " +
+      "line breaks (no markdown headers, no asterisks).",
+    `Job title: ${clip(title, 100)}\nCompany: ${clip(company, 100) || "not specified"}\n` +
+      `Job type: ${clip(jobType, 30) || "Full-Time"}\nLocation: ${clip(location, 100) || "not specified"}\n` +
+      `Key skills: ${asList(skills).join(", ").slice(0, 500) || "not specified"}\n` +
+      wrap("Extra notes from recruiter", notes || "none", 1500),
+    { maxTokens: 900 }
+  );
 
-// GENERATE ACHIEVEMENT BULLET POINTS FOR A ROLE
-// body: { role, company, responsibilities, count }
-router.post(
-  "/generate-bullets",
-  authMiddleware,
-  async (req, res) => {
-
-    try {
-
-      const {
-        role,
-        company,
-        responsibilities,
-        count,
-      } = req.body;
-
-      if (!role) {
-        return res.status(400).json({
-          message: "role is required",
-        });
-      }
-
-      const n = count || 4;
-
-      const bullets = await askAIForJSON(
-        "You are an expert resume writer. Generate resume achievement bullet points. " +
-          "Each bullet should start with a strong action verb and include a plausible " +
-          `quantified result where possible. Return a JSON array of exactly ${n} strings.`,
-        `Role: ${role}\nCompany: ${company || "not specified"}\n` +
-          `Responsibilities / notes from the candidate: ${responsibilities || "not provided"}`
-      );
-
-      res.json({
-        bullets: Array.isArray(bullets) ? bullets : [],
-      });
-
-    } catch (error) {
-
-      res.status(500).json({
-        message: error.message,
-      });
-
-    }
-  }
-);
-
-
-// MATCH RESUME AGAINST A JOB DESCRIPTION (ATS-style scoring)
-// body: { resumeText, jobDescription }
-router.post(
-  "/match-job",
-  authMiddleware,
-  async (req, res) => {
-
-    try {
-
-      const { resumeText, jobDescription } = req.body;
-
-      if (!resumeText || !jobDescription) {
-        return res.status(400).json({
-          message: "resumeText and jobDescription are required",
-        });
-      }
-
-      const result = await askAIForJSON(
-        "You are an ATS (Applicant Tracking System) resume matching engine. Compare the " +
-          "resume against the job description. Return a JSON object with exactly these keys: " +
-          '"score" (integer 0-100, how well the resume matches the job), ' +
-          '"matchedKeywords" (array of strings, important keywords/skills from the job that ' +
-          "the resume already covers), " +
-          '"missingKeywords" (array of strings, important keywords/skills from the job that ' +
-          "are missing from the resume), " +
-          '"suggestions" (array of 3-5 short, actionable strings to improve the match).',
-        `Job description:\n${jobDescription}\n\nResume:\n${resumeText}`
-      );
-
-      res.json(result);
-
-    } catch (error) {
-
-      res.status(500).json({
-        message: error.message,
-      });
-
-    }
-  }
-);
-
-// GENERATE A JOB DESCRIPTION (recruiter tool)
-// body: { title, company, jobType, location, skills: [], notes }
-router.post(
-  "/generate-job-description",
-  authMiddleware,
-  async (req, res) => {
-
-    try {
-
-      const {
-        title,
-        company,
-        jobType,
-        location,
-        skills,
-        notes,
-      } = req.body;
-
-      if (!title) {
-        return res.status(400).json({
-          message: "title is required",
-        });
-      }
-
-      const description = await askAI(
-        "You are an expert technical recruiter. Write clear, well-structured job " +
-          "descriptions with a short intro, a 'Responsibilities' section, and a " +
-          "'Requirements' section, using plain text with simple line breaks (no markdown " +
-          "headers, no asterisks).",
-        `Job title: ${title}\nCompany: ${company || "not specified"}\n` +
-          `Job type: ${jobType || "Full-Time"}\nLocation: ${location || "not specified"}\n` +
-          `Key skills: ${(skills || []).join(", ") || "not specified"}\n` +
-          `Extra notes from recruiter: ${notes || "none"}`
-      );
-
-      res.json({ description: description.trim() });
-
-    } catch (error) {
-
-      res.status(500).json({
-        message: error.message,
-      });
-
-    }
-  }
-);
+  res.json({ description: description.trim() });
+}));
 
 
 // GENERATE A TAILORED COVER LETTER
-// body: { jobId } OR { jobTitle, company, jobDescription }
-router.post(
-  "/generate-cover-letter",
-  authMiddleware,
-  async (req, res) => {
+router.post("/generate-cover-letter", handle(async (req, res) => {
+  const { jobId, jobTitle, company, jobDescription } = req.body;
 
-    try {
+  let title = jobTitle;
+  let companyName = company;
+  let description = jobDescription;
 
-      const { jobId, jobTitle, company, jobDescription } = req.body;
-
-      let title = jobTitle;
-      let companyName = company;
-      let description = jobDescription;
-
-      if (jobId) {
-
-        const job = await Job.findById(jobId);
-
-        if (!job) {
-          return res.status(404).json({
-            message: "Job not found",
-          });
-        }
-
-        title = job.title;
-        companyName = job.company;
-        description = job.description;
-      }
-
-      if (!title || !description) {
-        return res.status(400).json({
-          message: "jobId, or jobTitle + jobDescription, is required",
-        });
-      }
-
-      const resume = await Resume.findOne({ user: req.user.id });
-
-      if (!resume) {
-        return res.status(400).json({
-          message: "Save your resume in the Resume Builder first",
-        });
-      }
-
-      const resumeSummary =
-        `Name: ${resume.fullName}\nTitle: ${resume.title}\n` +
-        `Summary: ${resume.summary}\nSkills: ${(resume.skills || []).join(", ")}\n` +
-        `Experience: ${(resume.experience || [])
-          .map((e) => `${e.role} at ${e.company} (${(e.bullets || []).join("; ")})`)
-          .join(" | ")}`;
-
-      const coverLetter = await askAI(
-        "You are an expert career coach writing personalized cover letters. Write a " +
-          "concise (under 350 words), specific, enthusiastic cover letter in plain text " +
-          "paragraphs (no markdown, no placeholders like [Company Name] — use the real " +
-          "names given). Do not invent facts not present in the candidate's background.",
-        `Job title: ${title}\nCompany: ${companyName || "the company"}\n` +
-          `Job description: ${description}\n\nCandidate background:\n${resumeSummary}`
-      );
-
-      res.json({ coverLetter: coverLetter.trim() });
-
-    } catch (error) {
-
-      res.status(500).json({
-        message: error.message,
-      });
-
+  if (jobId) {
+    if (!require("mongoose").isValidObjectId(jobId)) {
+      return res.status(400).json({ message: "Invalid jobId" });
     }
+
+    const job = await Job.findById(jobId);
+
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    title = job.title;
+    companyName = job.company;
+    description = job.description;
   }
-);
+
+  if (!title || !description) {
+    return res.status(400).json({ message: "jobId, or jobTitle + jobDescription, is required" });
+  }
+
+  const resume = await Resume.findOne({ user: req.user.id });
+
+  if (!resume) {
+    return res.status(400).json({ message: "Save your resume in the Resume Builder first" });
+  }
+
+  const coverLetter = await askAI(
+    "You are an expert career coach writing personalized cover letters. Write a concise (under 350 words), " +
+      "specific, enthusiastic cover letter in plain text paragraphs (no markdown, no placeholders like " +
+      "[Company Name] — use the real names given). Do not invent facts not present in the candidate's background.",
+    `Job title: ${clip(title, 150)}\nCompany: ${clip(companyName, 150) || "the company"}\n` +
+      `${wrap("Job description", description, 4000)}\n\n` +
+      wrap("Candidate background", resumeToText(resume), 5000),
+    { maxTokens: 700 }
+  );
+
+  res.json({ coverLetter: coverLetter.trim() });
+}));
 
 
-// GENERATE LIKELY INTERVIEW QUESTIONS + PREP TIPS FOR A JOB
-// body: { jobId } OR { jobTitle, jobDescription }
+// GENERATE INTERVIEW QUESTIONS + PREP TIPS
+router.post("/interview-questions", handle(async (req, res) => {
+  const { jobId, jobTitle, jobDescription } = req.body;
+
+  let title = jobTitle;
+  let description = jobDescription;
+
+  if (jobId) {
+    if (!require("mongoose").isValidObjectId(jobId)) {
+      return res.status(400).json({ message: "Invalid jobId" });
+    }
+
+    const job = await Job.findById(jobId);
+
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    title = job.title;
+    description = job.description;
+  }
+
+  if (!title || !description) {
+    return res.status(400).json({ message: "jobId, or jobTitle + jobDescription, is required" });
+  }
+
+  const result = await askAIForJSON(
+    "You are an expert interview coach. Given a job title and description, produce likely interview " +
+      'questions. Return a JSON object with exactly these keys: "technical" (array of 5 role-specific ' +
+      'questions), "behavioral" (array of 4 behavioral questions), "tips" (array of 3-5 short, actionable ' +
+      "preparation tips for this specific role).",
+    `Job title: ${clip(title, 150)}\n${wrap("Job description", description, 4000)}`
+  );
+
+  res.json({
+    technical: asList(result.technical),
+    behavioral: asList(result.behavioral),
+    tips: asList(result.tips),
+  });
+}));
+
+
+// RECOMMEND JOBS FOR THE LOGGED-IN CANDIDATE
+router.get("/recommended-jobs", requireRole("Candidate"), handle(async (req, res) => {
+  const resume = await Resume.findOne({ user: req.user.id });
+
+  if (!resume) {
+    return res.status(400).json({ message: "Save your resume in the Resume Builder first" });
+  }
+
+  const jobs = await Job.find().sort({ createdAt: -1 }).limit(30);
+
+  if (jobs.length === 0) {
+    return res.json({ recommendations: [] });
+  }
+
+  const jobList = jobs
+    .map(
+      (j, i) =>
+        `${i}. [${j._id}] ${j.title} at ${j.company} — skills: ${(j.skills || []).join(", ") || "none listed"} — ${j.description.slice(0, 300)}`
+    )
+    .join("\n");
+
+  const result = await askAIForJSON(
+    "You are a job matching engine. Given a candidate profile and a numbered list of jobs (each with its " +
+      "database id in square brackets), pick and rank up to 5 jobs that best fit the candidate. Return " +
+      '{"recommendations": [...]}, each item with "jobId" (the id from the brackets), "score" (integer 0-100) ' +
+      'and "reason" (one short sentence). Best first. Only include reasonable fits; fewer than 5 is fine.',
+    `${wrap("Candidate profile", resumeToText(resume), 5000)}\n\nJobs:\n${jobList}`,
+    { maxTokens: 800 }
+  );
+
+  const byId = new Map(jobs.map((j) => [j._id.toString(), j]));
+
+  const recommendations = (result.recommendations || [])
+    .filter((r) => byId.has(r.jobId))
+    .map((r) => ({
+      score: Math.min(Math.max(Math.round(Number(r.score)) || 0, 0), 100),
+      reason: String(r.reason || ""),
+      job: byId.get(r.jobId),
+    }));
+
+  res.json({ recommendations });
+}));
+
+
+// NEW: AI SCREENING — rank all applicants of one of my jobs (recruiter)
 router.post(
-  "/interview-questions",
-  authMiddleware,
-  async (req, res) => {
+  "/screen-applicants/:jobId",
+  requireRole("Recruiter"),
+  validateObjectId("jobId"),
+  handle(async (req, res) => {
+    const job = await Job.findById(req.params.jobId);
 
-    try {
+    if (!job) return res.status(404).json({ message: "Job not found" });
 
-      const { jobId, jobTitle, jobDescription } = req.body;
+    if (job.createdBy.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Not your job" });
+    }
 
-      let title = jobTitle;
-      let description = jobDescription;
+    // Cap at 25 applicants per run to keep the prompt (and cost) bounded
+    const applications = await Application.find({ job: job._id })
+      .sort({ createdAt: -1 })
+      .limit(25)
+      .populate("user", "name");
 
-      if (jobId) {
+    if (applications.length === 0) {
+      return res.json({ results: [] });
+    }
 
-        const job = await Job.findById(jobId);
+    const resumes = await Resume.find({
+      user: { $in: applications.map((a) => a.user?._id) },
+    });
 
-        if (!job) {
-          return res.status(404).json({
-            message: "Job not found",
-          });
-        }
+    const resumeByUser = new Map(resumes.map((r) => [r.user.toString(), r]));
 
-        title = job.title;
-        description = job.description;
-      }
+    const withResume = applications.filter(
+      (a) => a.user && resumeByUser.has(a.user._id.toString())
+    );
 
-      if (!title || !description) {
-        return res.status(400).json({
-          message: "jobId, or jobTitle + jobDescription, is required",
-        });
-      }
+    const candidateBlock = withResume
+      .map(
+        (a) =>
+          `ID: ${a._id}\n${resumeToText(resumeByUser.get(a.user._id.toString())).slice(0, 1500)}`
+      )
+      .join("\n---\n");
+
+    let ranked = [];
+
+    if (withResume.length > 0) {
+      const jobText = `${job.title} at ${job.company}\nSkills: ${(job.skills || []).join(", ")}\n${job.description}`;
 
       const result = await askAIForJSON(
-        "You are an expert interview coach. Given a job title and description, produce " +
-          "likely interview questions. Return a JSON object with exactly these keys: " +
-          '"technical" (array of 5 likely technical/role-specific questions), ' +
-          '"behavioral" (array of 4 likely behavioral questions), ' +
-          '"tips" (array of 3-5 short, actionable preparation tips for this specific role).',
-        `Job title: ${title}\nJob description: ${description}`
+        "You are an expert technical recruiter screening applicants for a job. Score each candidate " +
+          "only on evidence in their resume. Return " +
+          '{"results": [...]} where each item has "applicationId" (the ID given), "score" (integer 0-100), ' +
+          '"summary" (one sentence), "strengths" (array of up to 3 short strings), "gaps" (array of up to 3 ' +
+          "short strings). Do not use gender, age, name, or ethnicity in scoring.",
+        `${wrap("Job", jobText, 3000)}\n\n${wrap("Candidates", candidateBlock, 30000)}`,
+        { maxTokens: 2500 }
       );
 
-      res.json(result);
+      const validIds = new Set(withResume.map((a) => a._id.toString()));
 
-    } catch (error) {
-
-      res.status(500).json({
-        message: error.message,
-      });
-
-    }
-  }
-);
-
-
-// RECOMMEND JOBS FOR THE LOGGED-IN CANDIDATE BASED ON THEIR SAVED RESUME
-router.get(
-  "/recommended-jobs",
-  authMiddleware,
-  async (req, res) => {
-
-    try {
-
-      const resume = await Resume.findOne({ user: req.user.id });
-
-      if (!resume) {
-        return res.status(400).json({
-          message: "Save your resume in the Resume Builder first",
-        });
-      }
-
-      const jobs = await Job.find().sort({ createdAt: -1 }).limit(30);
-
-      if (jobs.length === 0) {
-        return res.json({ recommendations: [] });
-      }
-
-      const jobList = jobs
-        .map(
-          (j, i) =>
-            `${i}. [${j._id}] ${j.title} at ${j.company} — skills: ${
-              (j.skills || []).join(", ") || "none listed"
-            } — ${j.description.slice(0, 300)}`
-        )
-        .join("\n");
-
-      const resumeSummary =
-        `Title: ${resume.title}\nTarget role: ${resume.targetRole}\n` +
-        `Summary: ${resume.summary}\nSkills: ${(resume.skills || []).join(", ")}\n` +
-        `Experience: ${(resume.experience || [])
-          .map((e) => e.role)
-          .join(", ")}`;
-
-      const result = await askAIForJSON(
-        "You are a job matching engine. Given a candidate profile and a numbered list of " +
-          "jobs (each with its database id in square brackets), pick and rank up to 5 jobs " +
-          "that best fit the candidate. Return a JSON object with key \"recommendations\": " +
-          "an array of objects, each with \"jobId\" (the id from the square brackets), " +
-          '"score" (integer 0-100), and "reason" (one short sentence). Order best first. ' +
-          "Only include jobs that are a reasonable fit; it is fine to return fewer than 5.",
-        `Candidate profile:\n${resumeSummary}\n\nJobs:\n${jobList}`
-      );
-
-      const byId = new Map(jobs.map((j) => [j._id.toString(), j]));
-
-      const recommendations = (result.recommendations || [])
-        .filter((r) => byId.has(r.jobId))
+      ranked = (result.results || [])
+        .filter((r) => validIds.has(String(r.applicationId)))
         .map((r) => ({
-          score: r.score,
-          reason: r.reason,
-          job: byId.get(r.jobId),
-        }));
+          applicationId: String(r.applicationId),
+          score: Math.min(Math.max(Math.round(Number(r.score)) || 0, 0), 100),
+          summary: String(r.summary || ""),
+          strengths: asList(r.strengths).slice(0, 3),
+          gaps: asList(r.gaps).slice(0, 3),
+        }))
+        .sort((a, b) => b.score - a.score);
+    }
 
-      res.json({ recommendations });
+    res.json({
+      results: ranked,
+      skipped: applications.length - withResume.length, // applicants with no saved resume profile
+    });
+  })
+);
 
-    } catch (error) {
+// NEW: AI REVIEW OF THE UPLOADED RESUME FILE (PDF / DOCX)
+router.post("/analyze-uploaded-resume", requireRole("Candidate"), handle(async (req, res) => {
+  const text = await getUploadedResumeText(req.user.id);
 
-      res.status(500).json({
-        message: error.message,
-      });
+  const result = await askAIForJSON(
+    "You are an expert resume reviewer. Review the resume text. Return a JSON object with exactly these keys: " +
+      '"score" (integer 0-100 overall quality), "strengths" (array of up to 4 short strings), ' +
+      '"weaknesses" (array of up to 4 short strings), "suggestions" (array of 4-6 specific, actionable strings), ' +
+      '"atsTips" (array of up to 3 strings about formatting/keywords for ATS systems).',
+    wrap("Resume", text, 9000),
+    { maxTokens: 1000 }
+  );
 
+  res.json({
+    score: Math.min(Math.max(Math.round(Number(result.score)) || 0, 0), 100),
+    strengths: asList(result.strengths),
+    weaknesses: asList(result.weaknesses),
+    suggestions: asList(result.suggestions),
+    atsTips: asList(result.atsTips),
+  });
+}));
+
+
+// NEW: IMPORT THE UPLOADED RESUME INTO THE RESUME BUILDER
+// Only fills sections that are currently empty, so it never overwrites work the user already did.
+router.post("/import-resume", requireRole("Candidate"), handle(async (req, res) => {
+  const text = await getUploadedResumeText(req.user.id);
+
+  const data = await askAIForJSON(
+    "You extract structured data from a resume. Use ONLY information present in the text; use empty " +
+      "strings / empty arrays when something is missing. Return a JSON object with keys: fullName, title, " +
+      "email, phone, location, linkedin, github, portfolio, summary (strings); skills (array of strings); " +
+      "experience (array of {role, company, location, startDate, endDate, current (boolean), bullets (array of strings)}); " +
+      "education (array of {degree, school, location, startDate, endDate, details}); " +
+      "projects (array of {name, link, description}); certifications (array of strings).",
+    wrap("Resume", text, 9000),
+    { maxTokens: 2500 }
+  );
+
+  const str = (v) => String(v ?? "").slice(0, 2000);
+  const strList = (v) => asList(v).map((x) => x.slice(0, 300)).slice(0, 40);
+
+  const clean = {
+    fullName: str(data.fullName),
+    title: str(data.title),
+    email: str(data.email),
+    phone: str(data.phone),
+    location: str(data.location),
+    linkedin: str(data.linkedin),
+    github: str(data.github),
+    portfolio: str(data.portfolio),
+    summary: str(data.summary),
+    skills: strList(data.skills),
+    certifications: strList(data.certifications),
+    experience: (Array.isArray(data.experience) ? data.experience : []).slice(0, 10).map((e) => ({
+      role: str(e.role), company: str(e.company), location: str(e.location),
+      startDate: str(e.startDate), endDate: str(e.endDate),
+      current: Boolean(e.current), bullets: strList(e.bullets).slice(0, 8),
+    })),
+    education: (Array.isArray(data.education) ? data.education : []).slice(0, 6).map((e) => ({
+      degree: str(e.degree), school: str(e.school), location: str(e.location),
+      startDate: str(e.startDate), endDate: str(e.endDate), details: str(e.details),
+    })),
+    projects: (Array.isArray(data.projects) ? data.projects : []).slice(0, 10).map((p) => ({
+      name: str(p.name), link: str(p.link), description: str(p.description),
+    })),
+  };
+
+  const existing = (await Resume.findOne({ user: req.user.id })) || new Resume({ user: req.user.id });
+
+  const filled = [];
+
+  for (const [key, value] of Object.entries(clean)) {
+    const isEmpty = Array.isArray(existing[key]) ? existing[key].length === 0 : !existing[key];
+    const hasValue = Array.isArray(value) ? value.length > 0 : Boolean(value);
+
+    if (isEmpty && hasValue) {
+      existing[key] = value;
+      filled.push(key);
     }
   }
+
+  await existing.save();
+
+  res.json({ filled, resume: existing });
+}));
+
+
+// NEW: MOCK INTERVIEW — AI scores a candidate's written answer
+// body: { question, answer, jobId? }
+router.post("/evaluate-answer", handle(async (req, res) => {
+  const { question, answer, jobId } = req.body;
+
+  if (!question || !answer || answer.trim().length < 10) {
+    return res.status(400).json({ message: "Write a proper answer (at least a sentence) first" });
+  }
+
+  let jobLine = "";
+
+  if (jobId && require("mongoose").isValidObjectId(jobId)) {
+    const job = await Job.findById(jobId).select("title company");
+    if (job) jobLine = `The interview is for: ${job.title} at ${job.company}.\n`;
+  }
+
+  const result = await askAIForJSON(
+    "You are a strict but fair interviewer giving feedback on a candidate's answer. Return a JSON object " +
+      'with keys: "score" (integer 0-10), "feedback" (2-3 sentences), "strengths" (array of up to 3 short ' +
+      'strings), "improvements" (array of up to 3 short strings), "betterAnswer" (a concise model answer, ' +
+      "max 120 words, that reuses the candidate's own facts and does not invent experience).",
+    `${jobLine}${wrap("Question", question, 500)}\n\n${wrap("Candidate answer", answer, 3000)}`,
+    { maxTokens: 700 }
+  );
+
+  res.json({
+    score: Math.min(Math.max(Math.round(Number(result.score)) || 0, 0), 10),
+    feedback: String(result.feedback || ""),
+    strengths: asList(result.strengths),
+    improvements: asList(result.improvements),
+    betterAnswer: String(result.betterAnswer || ""),
+  });
+}));
+
+
+// NEW: SKILL-GAP LEARNING ROADMAP for a specific job
+router.post(
+  "/skill-roadmap/:jobId",
+  requireRole("Candidate"),
+  validateObjectId("jobId"),
+  handle(async (req, res) => {
+    const [job, resume] = await Promise.all([
+      Job.findById(req.params.jobId),
+      Resume.findOne({ user: req.user.id }),
+    ]);
+
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    if (!resume || !resume.skills?.length) {
+      return res.status(400).json({ message: "Save your resume in the Resume Builder first" });
+    }
+
+    const result = await askAIForJSON(
+      "You are a career mentor. Compare the candidate's skills with the job and build a realistic " +
+        'learning plan for the gaps. Return {"gaps": [{"skill": string, "why": string (one sentence), ' +
+        '"weeks": integer, "steps": [2-3 short concrete strings], "project": string (a small portfolio ' +
+        'project idea to prove it)}]} with at most 5 gaps, most important first. If there are no real ' +
+        "gaps return an empty array.",
+      `${wrap("Job", `${job.title}\nSkills: ${(job.skills || []).join(", ")}\n${job.description}`, 4000)}\n\n` +
+        wrap("Candidate", resumeToText(resume), 4000),
+      { maxTokens: 1200 }
+    );
+
+    const gaps = (Array.isArray(result.gaps) ? result.gaps : []).slice(0, 5).map((g) => ({
+      skill: String(g.skill || ""),
+      why: String(g.why || ""),
+      weeks: Math.min(Math.max(parseInt(g.weeks, 10) || 2, 1), 26),
+      steps: asList(g.steps).slice(0, 3),
+      project: String(g.project || ""),
+    }));
+
+    res.json({ gaps });
+  })
 );
 
 module.exports = router;

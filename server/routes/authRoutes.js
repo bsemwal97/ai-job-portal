@@ -7,121 +7,90 @@ const authMiddleware = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ROLES = ["Recruiter", "Candidate"];
+
+const signToken = (user) =>
+  jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
+    expiresIn: "7d",
+  });
+
+const publicUser = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+});
+
 
 // REGISTER
 router.post("/register", async (req, res) => {
-  try {
+  const { name, email, password, role } = req.body;
 
-    const { name, email, password } = req.body;
-
-    const existingUser = await User.findOne({ email });
-
-    if (existingUser) {
-      return res.status(400).json({
-        message: "User already exists",
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-    });
-
-    const token = jwt.sign(
-      {
-        id: user._id,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
-    );
-
-    res.status(201).json({
-      token,
-      user,
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-      message: error.message,
-    });
-
+  if (!name?.trim() || !email || !password) {
+    return res.status(400).json({ message: "Name, email and password are required" });
   }
+
+  if (!EMAIL_REGEX.test(email)) {
+    return res.status(400).json({ message: "Enter a valid email address" });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({ message: "Password must be at least 8 characters" });
+  }
+
+  if (role && !ROLES.includes(role)) {
+    return res.status(400).json({ message: "Role must be Recruiter or Candidate" });
+  }
+
+  const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
+
+  if (existingUser) {
+    return res.status(400).json({ message: "User already exists" });
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const user = await User.create({
+    name,
+    email,
+    password: hashedPassword,
+    role: role || "Candidate",
+  });
+
+  res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
 
 
 // LOGIN
 router.post("/login", async (req, res) => {
-  try {
+  const { email, password } = req.body;
 
-    const { email, password } = req.body;
-
-    const user = await User.findOne({ email });
-
-    if (!user) {
-      return res.status(400).json({
-        message: "Invalid credentials",
-      });
-    }
-
-    const isMatch = await bcrypt.compare(
-      password,
-      user.password
-    );
-
-    if (!isMatch) {
-      return res.status(400).json({
-        message: "Invalid credentials",
-      });
-    }
-
-    const token = jwt.sign(
-      {
-        id: user._id,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
-    );
-
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-      },
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-      message: error.message,
-    });
-
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email and password are required" });
   }
+
+  const user = await User.findOne({ email: String(email).toLowerCase().trim() });
+
+  const isMatch = user && (await bcrypt.compare(password, user.password));
+
+  if (!isMatch) {
+    return res.status(400).json({ message: "Invalid credentials" });
+  }
+
+  res.json({ token: signToken(user), user: publicUser(user) });
 });
 
 
 // GET CURRENT USER
-router.get(
-  "/me",
-  authMiddleware,
-  async (req, res) => {
+router.get("/me", authMiddleware, async (req, res) => {
+  const user = await User.findById(req.user.id).select("-password");
 
-    const user = await User.findById(
-      req.user.id
-    ).select("-password");
-
-    res.json(user);
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
   }
-);
 
+  res.json(user);
+});
 
 module.exports = router;

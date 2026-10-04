@@ -4,6 +4,7 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
+import { getUser, logout } from "../config";
 
 function Navbar() {
 
@@ -16,14 +17,11 @@ function Navbar() {
   const token =
     localStorage.getItem("token");
 
-  const user = JSON.parse(
-    localStorage.getItem("user")
-  );
+  const user = getUser();
 
   const handleLogout = () => {
 
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    logout();
 
     navigate("/login");
   };
@@ -109,10 +107,24 @@ function Navbar() {
               </Link>
 
               <Link
+                to="/saved-jobs"
+                className={activeLink("/saved-jobs")}
+              >
+                Saved
+              </Link>
+
+              <Link
                 to="/resume-builder"
                 className={activeLink("/resume-builder")}
               >
                 Resume Builder
+              </Link>
+
+              <Link
+                to="/upload-resume"
+                className={activeLink("/upload-resume")}
+              >
+                Upload Resume
               </Link>
 
               <Link
@@ -251,6 +263,16 @@ function Navbar() {
               </Link>
 
               <Link
+                to="/saved-jobs"
+                className="block"
+                onClick={() =>
+                  setMenuOpen(false)
+                }
+              >
+                Saved
+              </Link>
+
+              <Link
                 to="/resume-builder"
                 className="block"
                 onClick={() =>
@@ -258,6 +280,16 @@ function Navbar() {
                 }
               >
                 Resume Builder
+              </Link>
+
+              <Link
+                to="/upload-resume"
+                className="block"
+                onClick={() =>
+                  setMenuOpen(false)
+                }
+              >
+                Upload Resume
               </Link>
 
               <Link

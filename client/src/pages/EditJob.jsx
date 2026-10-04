@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { API_BASE } from "../config";
 import {
   useNavigate,
   useParams,
@@ -27,7 +28,7 @@ function EditJob() {
       try {
 
         const response = await axios.get(
-          `http://localhost:5000/api/jobs/${id}`
+          `${API_BASE}/api/jobs/${id}`
         );
 
         const job = response.data.job;
@@ -66,7 +67,7 @@ function EditJob() {
       const token = localStorage.getItem("token");
 
       await axios.put(
-        `http://localhost:5000/api/jobs/${id}`,
+        `${API_BASE}/api/jobs/${id}`,
         {
           title,
           company,

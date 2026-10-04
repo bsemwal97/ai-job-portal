@@ -1,5 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
+import { API_BASE, errorMessage } from "../config";
 import { useNavigate } from "react-router-dom";
 
 function Login() {
@@ -8,6 +9,7 @@ function Login() {
   const [password, setPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const navigate = useNavigate();
 
@@ -18,16 +20,15 @@ function Login() {
     try {
 
       setLoading(true);
+      setError("");
 
       const response = await axios.post(
-        "http://localhost:5000/api/auth/login",
+        `${API_BASE}/api/auth/login`,
         {
           email,
           password,
         }
       );
-
-      console.log(response.data);
 
       localStorage.setItem(
         "token",
@@ -39,13 +40,15 @@ function Login() {
         JSON.stringify(response.data.user)
       );
 
-      navigate("/dashboard");
+      navigate(
+        response.data.user.role === "Recruiter"
+          ? "/dashboard"
+          : "/jobs"
+      );
 
     } catch (error) {
 
-      console.log(
-        error.response?.data || error.message
-      );
+      setError(errorMessage(error, "Login failed. Check your connection."));
 
     } finally {
 
@@ -67,6 +70,12 @@ function Login() {
           Login to continue
         </p>
 
+        {error && (
+          <div className="bg-red-100 text-red-600 px-4 py-3 rounded-lg mb-4">
+            {error}
+          </div>
+        )}
+
         <form
           className="space-y-5"
           onSubmit={handleLogin}
@@ -80,6 +89,7 @@ function Login() {
 
             <input
               type="email"
+              required
               placeholder="Enter your email"
               value={email}
               onChange={(e) =>
@@ -98,6 +108,7 @@ function Login() {
 
             <input
               type="password"
+              required
               placeholder="Enter your password"
               value={password}
               onChange={(e) =>

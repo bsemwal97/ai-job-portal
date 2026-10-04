@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { API_BASE } from "../config";
 import { useParams, Link } from "react-router-dom";
 
-const API_BASE = "http://localhost:5000";
 
 function authHeaders() {
   return {

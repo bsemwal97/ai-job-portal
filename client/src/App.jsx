@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Routes, Route } from "react-router-dom";
 
 import Navbar from "./components/Navbar";
@@ -12,10 +13,13 @@ import Jobs from "./pages/Jobs";
 import JobDetails from "./pages/JobDetails";
 import UploadResume from "./pages/UploadResume";
 import EditJob from "./pages/EditJob";
-import ResumeBuilder from "./pages/ResumeBuilder";
+const ResumeBuilder = lazy(() => import("./pages/ResumeBuilder"));
 import CoverLetter from "./pages/CoverLetter";
 import InterviewPrep from "./pages/InterviewPrep";
 import RecommendedJobs from "./pages/RecommendedJobs";
+import MyApplications from "./pages/MyApplications";
+import Applicants from "./pages/Applicants";
+import SavedJobs from "./pages/SavedJobs";
 
 
 function App() {
@@ -43,7 +47,7 @@ function App() {
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute role="Recruiter">
               <Dashboard />
             </ProtectedRoute>
           }
@@ -51,7 +55,7 @@ function App() {
         <Route
           path="/create-job"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute role="Recruiter">
               <CreateJob />
             </ProtectedRoute>
           }
@@ -70,7 +74,7 @@ function App() {
         <Route
           path="/upload-resume"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute role="Candidate">
               <UploadResume />
             </ProtectedRoute>
           }
@@ -79,7 +83,7 @@ function App() {
         <Route
           path="/edit-job/:id"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute role="Recruiter">
               <EditJob />
             </ProtectedRoute>
           }
@@ -88,8 +92,10 @@ function App() {
         <Route
           path="/resume-builder"
           element={
-            <ProtectedRoute>
-              <ResumeBuilder />
+            <ProtectedRoute role="Candidate">
+              <Suspense fallback={<p className="text-center mt-10">Loading...</p>}>
+                <ResumeBuilder />
+              </Suspense>
             </ProtectedRoute>
           }
         />
@@ -97,7 +103,7 @@ function App() {
         <Route
           path="/jobs/:id/cover-letter"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute role="Candidate">
               <CoverLetter />
             </ProtectedRoute>
           }
@@ -106,7 +112,7 @@ function App() {
         <Route
           path="/jobs/:id/interview-prep"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute role="Candidate">
               <InterviewPrep />
             </ProtectedRoute>
           }
@@ -115,9 +121,45 @@ function App() {
         <Route
           path="/recommended-jobs"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute role="Candidate">
               <RecommendedJobs />
             </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/my-applications"
+          element={
+            <ProtectedRoute role="Candidate">
+              <MyApplications />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/saved-jobs"
+          element={
+            <ProtectedRoute role="Candidate">
+              <SavedJobs />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/jobs/:id/applicants"
+          element={
+            <ProtectedRoute role="Recruiter">
+              <Applicants />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="*"
+          element={
+            <h1 className="text-center mt-20 text-3xl font-bold">
+              404 — Page not found
+            </h1>
           }
         />
 

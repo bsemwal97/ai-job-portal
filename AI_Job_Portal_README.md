@@ -58,6 +58,58 @@ All four endpoints live in `server/routes/aiRoutes.js`.
 
 ---
 
+## New in this update
+
+**Fixes**
+- Register now saves the chosen role and login returns it (before, everyone became a Candidate, so role-based navbar/pages never worked)
+- Role checks on the server: only Recruiters can create/edit/delete jobs, only Candidates can apply
+- "Cancel Delete" on the Jobs page now really cancels (the timer kept running before)
+- Password hash is never returned in API responses; job update ignores fields like `createdBy`
+- Invalid ids return 400 instead of 500; duplicate applications blocked by a DB unique index
+- Resume upload: PDF/DOC/DOCX only, 5 MB max, safe filenames, downloads are access-controlled
+- Server no longer crashes at start-up when `OPENAI_API_KEY` is missing (AI routes return a clear 503)
+
+**New features**
+- Job search + filters (title/company/skill, location, job type)
+- My Applications page with status tracking; recruiters update status (Applied / Shortlisted / Interview / Rejected / Hired)
+- Recruiter Applicants page with resume download
+- AI: **Check My Match** on every job (`POST /api/ai/job-match/:jobId`)
+- AI: **Rank Applicants** for recruiters (`POST /api/ai/screen-applicants/:jobId`)
+
+**Added in update 2**
+- AI resume review for the uploaded PDF/DOCX (`POST /api/ai/analyze-uploaded-resume`) and one-click import into the Resume Builder (`POST /api/ai/import-resume`, only fills empty sections)
+- Mock interview: write an answer under any AI question and get a score + feedback + stronger answer (`POST /api/ai/evaluate-answer`)
+- Skill-gap learning roadmap per job (`POST /api/ai/skill-roadmap/:jobId`)
+- Saved jobs (heart button + Saved page), withdraw application, applicant count per job, pagination on the Jobs page
+- Automated tests (`cd server && npm test`), GitHub Actions CI, Dockerfiles + `docker-compose.yml`
+
+**Hardening**: helmet, rate limiting (auth + AI), CORS allow-list, prompt-injection guards, input length caps, token limits, central error handler, `/api/health`
+
+---
+
+## Run with Docker
+
+```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" > .env
+echo "OPENAI_API_KEY=sk-..." >> .env
+docker compose up --build      # app on http://localhost:3000, API on :5000
+```
+
+## Setup (without Docker)
+
+```bash
+# server
+cd server && cp .env.example .env   # fill MONGO_URI, JWT_SECRET, OPENAI_API_KEY
+npm install && npm run dev
+
+# client
+cd client && cp .env.example .env   # VITE_API_URL=http://localhost:5000
+npm install && npm run dev
+```
+
+Existing accounts: earlier versions saved every user as `Candidate`. To promote a recruiter:
+`db.users.updateOne({ email: "you@example.com" }, { $set: { role: "Recruiter" } })`
+
 ## Status
 
-Build tested — all checks passing. 4 new AI endpoints and their matching frontend pages shipped in the latest update, bringing the project to 8 AI-powered features across the recruiter and candidate flows.
+15 AI-powered features across the recruiter and candidate flows.

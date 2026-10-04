@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
+import { API_BASE } from "../config";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
-const API_BASE = "http://localhost:5000";
 
 const emptyExperience = {
   role: "",
@@ -99,11 +99,6 @@ function ResumeBuilder() {
 
   const previewRef = useRef(null);
 
-  useEffect(() => {
-    loadResume();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const loadResume = async () => {
     try {
       setLoading(true);
@@ -124,6 +119,12 @@ function ResumeBuilder() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    // initial data load on mount
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadResume();
+  }, []);
 
   const saveResume = async () => {
     try {
