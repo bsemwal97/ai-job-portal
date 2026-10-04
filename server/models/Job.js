@@ -36,6 +36,13 @@ const jobSchema = new mongoose.Schema(
       required: true,
     },
 
+    // Closed jobs are hidden from the public list and no longer accept applications
+    status: {
+      type: String,
+      enum: ["Open", "Closed"],
+      default: "Open",
+    },
+
     skills: {
       type: [String],
       default: [],

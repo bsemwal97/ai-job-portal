@@ -15,6 +15,8 @@ const getClient = () => {
   if (!client) {
     client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
+      // Optional: point at any OpenAI-compatible provider (Gemini, Groq, OpenRouter ...)
+      baseURL: process.env.OPENAI_BASE_URL || undefined,
       timeout: 30000,
       maxRetries: 1,
     });
@@ -33,18 +35,44 @@ const GUARD =
 const wrap = (label, text, max) => `${label}:\n<<<\n${clip(text, max)}\n>>>`;
 
 async function askAI(system, user, { json = false, maxTokens = 1200 } = {}) {
-  const completion = await getClient().chat.completions.create({
+  const request = {
     model: AI_MODEL,
     max_tokens: maxTokens,
     temperature: json ? 0.2 : 0.7,
-    ...(json && { response_format: { type: "json_object" } }),
     messages: [
       { role: "system", content: system + GUARD },
       { role: "user", content: user },
     ],
-  });
+  };
+
+  let completion;
+
+  try {
+    completion = await getClient().chat.completions.create({
+      ...request,
+      ...(json && { response_format: { type: "json_object" } }),
+    });
+  } catch (error) {
+    // Some OpenAI-compatible providers reject response_format. The prompt already asks for
+    // JSON only, so retry once without it.
+    if (json && error.status === 400) {
+      completion = await getClient().chat.completions.create(request);
+    } else {
+      throw error;
+    }
+  }
 
   return completion.choices[0].message.content || "";
+}
+
+// Models without JSON mode sometimes wrap the answer in ```json fences
+function parseJSONLoose(raw) {
+  const cleaned = String(raw)
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+
+  return JSON.parse(cleaned);
 }
 
 async function askAIForJSON(system, user, opts = {}) {
@@ -55,7 +83,7 @@ async function askAIForJSON(system, user, opts = {}) {
   );
 
   try {
-    return JSON.parse(raw);
+    return parseJSONLoose(raw);
   } catch {
     const err = new Error("The AI returned an unreadable response. Please try again.");
     err.status = 502;
@@ -112,4 +140,4 @@ function resumeToText(resume) {
     .join("\n");
 }
 
-module.exports = { askAI, askAIForJSON, aiErrorResponse, resumeToText, clip, wrap };
+module.exports = { askAI, askAIForJSON, parseJSONLoose, aiErrorResponse, resumeToText, clip, wrap };

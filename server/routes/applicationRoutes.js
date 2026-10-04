@@ -6,6 +6,7 @@ const Job = require("../models/Job");
 const authMiddleware = require("../middleware/authMiddleware");
 const { requireRole } = require("../middleware/authMiddleware");
 const validateObjectId = require("../middleware/validateObjectId");
+const { sendMailSafe, statusChangeEmail } = require("../utils/mailer");
 
 const router = express.Router();
 
@@ -58,7 +59,9 @@ router.patch(
       return res.status(400).json({ message: `Status must be one of: ${STATUSES.join(", ")}` });
     }
 
-    const application = await Application.findById(req.params.id).populate("job", "createdBy");
+    const application = await Application.findById(req.params.id)
+      .populate("job", "createdBy title company")
+      .populate("user", "name email");
 
     if (!application || !application.job) {
       return res.status(404).json({ message: "Application not found" });
@@ -68,8 +71,18 @@ router.patch(
       return res.status(403).json({ message: "Not your job" });
     }
 
+    const changed = application.status !== status;
+
     application.status = status;
     await application.save();
+
+    // Tell the candidate (best effort: a mail failure never fails the request)
+    if (changed && application.user) {
+      sendMailSafe({
+        to: application.user.email,
+        ...statusChangeEmail(application.user.name, application.job.title, application.job.company, status),
+      });
+    }
 
     res.json({ _id: application._id, status: application.status });
   }
@@ -83,9 +96,13 @@ router.post(
   requireRole("Candidate"),
   validateObjectId("jobId"),
   async (req, res) => {
-    const job = await Job.findById(req.params.jobId).select("_id");
+    const job = await Job.findById(req.params.jobId).select("_id status");
 
     if (!job) return res.status(404).json({ message: "Job not found" });
+
+    if (job.status === "Closed") {
+      return res.status(400).json({ message: "This job is no longer accepting applications" });
+    }
 
     try {
       const application = await Application.create({

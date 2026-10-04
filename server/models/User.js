@@ -20,6 +20,10 @@ const userSchema = new mongoose.Schema(
       default: "Candidate",
     },
 
+    // Password reset: we store only a hash of the emailed token, never the token itself
+    resetPasswordHash: { type: String, select: false },
+    resetPasswordExpires: { type: Date, select: false },
+
     savedJobs: [{ type: mongoose.Schema.Types.ObjectId, ref: "Job" }],
 
     // Uploaded resume file (PDF / DOC / DOCX)

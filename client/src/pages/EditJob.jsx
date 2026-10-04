@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { API_BASE } from "../config";
+import JobPostChecker from "../components/JobPostChecker";
 import {
   useNavigate,
   useParams,
@@ -196,6 +197,8 @@ function EditJob() {
             }
             className="w-full border border-gray-300 rounded-lg px-4 py-3 h-40"
           />
+
+          <JobPostChecker title={title} description={description} salary={salary} skills={[]} />
 
           <button
             type="submit"

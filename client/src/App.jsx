@@ -20,6 +20,8 @@ import RecommendedJobs from "./pages/RecommendedJobs";
 import MyApplications from "./pages/MyApplications";
 import Applicants from "./pages/Applicants";
 import SavedJobs from "./pages/SavedJobs";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 
 function App() {
@@ -135,6 +137,10 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
 
         <Route
           path="/saved-jobs"

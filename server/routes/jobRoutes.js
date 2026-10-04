@@ -20,6 +20,7 @@ const EDITABLE_FIELDS = [
   "skills",
   "companyLogo",
   "applicationLink",
+  "status",
 ];
 
 const pickJobFields = (body) => {
@@ -55,7 +56,8 @@ router.post("/", authMiddleware, requireRole("Recruiter"), async (req, res) => {
 router.get("/", async (req, res) => {
   const { q, location, jobType, page, limit } = req.query;
 
-  const filter = {};
+  // Closed jobs are hidden from the public list (old jobs without a status count as open)
+  const filter = { status: { $ne: "Closed" } };
 
   if (q) {
     const rx = new RegExp(escapeRegex(q), "i");

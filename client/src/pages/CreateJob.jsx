@@ -1,6 +1,7 @@
 import { useState } from "react";
 import axios from "axios";
 import { API_BASE } from "../config";
+import JobPostChecker from "../components/JobPostChecker";
 import { useNavigate } from "react-router-dom";
 
 function CreateJob() {
@@ -234,6 +235,13 @@ function CreateJob() {
               setDescription(e.target.value)
             }
             className="w-full border border-gray-300 rounded-lg px-4 py-3 h-40"
+          />
+
+          <JobPostChecker
+            title={title}
+            description={description}
+            salary={salary}
+            skills={skills.split(",").map((s) => s.trim()).filter(Boolean)}
           />
 
           <button

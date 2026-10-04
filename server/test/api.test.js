@@ -132,3 +132,72 @@ test("resume text extraction works for PDF and DOCX, rejects .doc", async () => 
 
   await assert.rejects(() => extractResumeText(legacy), /PDF and DOCX/);
 });
+
+
+test("forgot / reset password validation", async () => {
+  assert.equal((await call("POST", "/api/auth/forgot-password", null, {})).status, 400);
+  assert.equal((await call("POST", "/api/auth/forgot-password", null, { email: "nope" })).status, 400);
+
+  // token must be 64 hex chars — rejected before touching the database
+  assert.equal((await call("POST", "/api/auth/reset-password/abc", null, { password: "12345678" })).status, 400);
+
+  const goodToken = "a".repeat(64);
+  assert.equal((await call("POST", `/api/auth/reset-password/${goodToken}`, null, { password: "123" })).status, 400);
+});
+
+test("check-job-post: recruiter only, validates input, cleans AI output", async () => {
+  assert.equal((await call("POST", "/api/ai/check-job-post", candidate, { title: "t", description: "d" })).status, 403);
+  assert.equal((await call("POST", "/api/ai/check-job-post", recruiter, { title: "t" })).status, 400);
+
+  nextAiJson = { score: -5, issues: ["No salary", 7], biasedPhrases: "rockstar", suggestions: ["Add salary range"] };
+
+  const r = await call("POST", "/api/ai/check-job-post", recruiter, { title: "Dev", description: "We need a rockstar ninja." });
+
+  assert.equal(r.status, 200);
+  assert.equal(r.body.score, 0);                       // clamped
+  assert.deepEqual(r.body.issues, ["No salary", "7"]);
+  assert.deepEqual(r.body.biasedPhrases, []);          // wrong type -> []
+});
+
+test("resume file delete is candidate-only", async () => {
+  const uploadRoutes = require("../routes/uploadRoutes");
+  const mini = express();
+  mini.use("/api/upload", uploadRoutes);
+  const srv = mini.listen(0);
+  const url = `http://127.0.0.1:${srv.address().port}/api/upload/resume`;
+
+  const r = await fetch(url, { method: "DELETE", headers: { authorization: recruiter } });
+  srv.close();
+
+  assert.equal(r.status, 403);
+});
+
+test("emails: dev fallback logs instead of sending, and HTML is escaped", async () => {
+  const { sendMail, statusChangeEmail } = require("../utils/mailer");
+
+  delete process.env.SMTP_HOST;
+
+  const originalLog = console.log;
+  let logged = "";
+  console.log = (msg) => { logged += msg; };
+
+  const result = await sendMail({ to: "a@b.co", subject: "Hi", text: "body" });
+
+  console.log = originalLog;
+
+  assert.equal(result.logged, true);
+  assert.match(logged, /DEV EMAIL/);
+
+  const mail = statusChangeEmail("Ravi", "<script>alert(1)</script>", "Acme", "Hired");
+  assert.ok(!mail.html.includes("<script>"));
+  assert.match(mail.html, /&lt;script&gt;/);
+});
+
+
+test("parseJSONLoose handles plain JSON and ```json fenced answers", () => {
+  const { parseJSONLoose } = realAi;
+
+  assert.deepEqual(parseJSONLoose('{"a":1}'), { a: 1 });
+  assert.deepEqual(parseJSONLoose('```json\n{"a":1}\n```'), { a: 1 });
+  assert.throws(() => parseJSONLoose("not json"));
+});

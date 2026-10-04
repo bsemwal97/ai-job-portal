@@ -83,9 +83,26 @@ All four endpoints live in `server/routes/aiRoutes.js`.
 - Saved jobs (heart button + Saved page), withdraw application, applicant count per job, pagination on the Jobs page
 - Automated tests (`cd server && npm test`), GitHub Actions CI, Dockerfiles + `docker-compose.yml`
 
+**Added in update 3**
+- Forgot / reset password (hashed one-time token, 30 min expiry; emails are printed in the console until `SMTP_*` is set)
+- Email to the candidate when a recruiter changes their application status
+- Close / reopen jobs (closed jobs leave the public list and stop accepting applications)
+- AI job-post quality checker for recruiters (`POST /api/ai/check-job-post`: score, issues, biased wording, suggestions)
+- Delete your uploaded resume file
+- Deploy files: `render.yaml` (API) and `client/vercel.json` (frontend)
+
 **Hardening**: helmet, rate limiting (auth + AI), CORS allow-list, prompt-injection guards, input length caps, token limits, central error handler, `/api/health`
 
 ---
+
+## Deploy (free tier)
+
+1. **Database:** create a free MongoDB Atlas cluster, copy the connection string.
+2. **API:** on Render, create a Blueprint from this repo (`render.yaml`) and fill the env vars (`MONGO_URI`, `CLIENT_URL`, `OPENAI_API_KEY`, optional `SMTP_*`).
+3. **Frontend:** import `/client` on Vercel and set `VITE_API_URL` to your Render URL.
+4. Set `CLIENT_URL` on Render to the Vercel URL (CORS and reset-password links use it).
+
+Note: Render's free disk is temporary, so uploaded resume files disappear on redeploy. Move uploads to S3/Cloudinary for production.
 
 ## Run with Docker
 
@@ -112,4 +129,4 @@ Existing accounts: earlier versions saved every user as `Candidate`. To promote 
 
 ## Status
 
-15 AI-powered features across the recruiter and candidate flows.
+16 AI-powered features across the recruiter and candidate flows.

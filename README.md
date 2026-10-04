@@ -84,6 +84,27 @@ ai-job-portal/
 
 **Requirements:** Node.js 20+, a MongoDB database (local or Atlas), and optionally an OpenAI API key.
 
+### 0. Create the database and keys
+
+**MongoDB (free, MongoDB Atlas)**
+1. Sign up at mongodb.com/atlas and create a free **M0** cluster.
+2. *Security > Database Access*: add a database user (username + password). Prefer a password without special characters, or URL-encode it.
+3. *Security > Network Access*: add your current IP. For a deployed API (Render free has no fixed IP) allow `0.0.0.0/0` and use a strong password.
+4. Click **Connect** on the cluster, choose the application/driver option, and copy the `mongodb+srv://...` string.
+5. Replace `<password>` with your password and add the database name before the `?`, e.g. `.../ai-job-portal?retryWrites=true...`. This is your `MONGO_URI`.
+
+**JWT secret (no signup needed)**
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+Copy the output into `JWT_SECRET`. Never commit it.
+
+**AI key (optional, the app works without it)**
+- *OpenAI:* create a key at platform.openai.com (API usage normally needs a small prepaid balance) and put it in `OPENAI_API_KEY`.
+- *Free alternative, Google Gemini:* create a key at aistudio.google.com/apikey, then set `OPENAI_API_KEY=<that key>`, `OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/` and `OPENAI_MODEL=<a model name from AI Studio>`. Free tiers have daily limits.
+
+**Email (optional):** leave `SMTP_HOST` empty in development; emails are printed in the server console.
+
 ### 1. Server
 
 ```bash
@@ -100,6 +121,7 @@ npm run dev              # http://localhost:5000
 | `CLIENT_URL` | no | Allowed frontend origin(s), comma-separated. Default `http://localhost:5173` |
 | `OPENAI_API_KEY` | no | Enables AI features. Without it the AI routes return 503 and everything else works |
 | `OPENAI_MODEL` | no | Default `gpt-4.1-mini` |
+| `OPENAI_BASE_URL` | no | Use another OpenAI-compatible provider (e.g. Gemini) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | no | Email settings. If `SMTP_HOST` is empty, emails are printed in the server console |
 
 ### 2. Client

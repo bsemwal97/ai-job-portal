@@ -38,6 +38,24 @@ function Dashboard() {
   }, []);
 
 
+  const toggleStatus = async (job) => {
+
+    const status = job.status === "Closed" ? "Open" : "Closed";
+
+    try {
+
+      await axios.put(`${API_BASE}/api/jobs/${job._id}`, { status });
+
+      setJobs((prev) => prev.map((j) => (j._id === job._id ? { ...j, status } : j)));
+
+    } catch (err) {
+
+      setError(errorMessage(err, "Could not update job"));
+
+    }
+  };
+
+
   const handleDelete = async (job) => {
 
     if (!window.confirm(`Delete "${job.title}" and all its applications?`)) return;
@@ -135,7 +153,15 @@ function Dashboard() {
               className="bg-white p-6 rounded-2xl shadow-md"
             >
 
-              <h3 className="text-2xl font-semibold">{job.title}</h3>
+              <div className="flex justify-between items-start gap-3">
+
+                <h3 className="text-2xl font-semibold">{job.title}</h3>
+
+                {job.status === "Closed" && (
+                  <span className="bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full">Closed</span>
+                )}
+
+              </div>
 
               <p className="text-gray-600 mt-1">{job.company}</p>
 
@@ -181,6 +207,14 @@ function Dashboard() {
                 </button>
 
               </div>
+
+              <button
+                type="button"
+                onClick={() => toggleStatus(job)}
+                className="mt-3 border border-gray-400 text-gray-700 px-3 py-2 rounded-lg w-full text-sm"
+              >
+                {job.status === "Closed" ? "Reopen job" : "Close job (stop applications)"}
+              </button>
 
             </div>
 

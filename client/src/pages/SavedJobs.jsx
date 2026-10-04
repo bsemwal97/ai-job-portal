@@ -54,7 +54,12 @@ function SavedJobs() {
             >
 
               <div>
-                <h3 className="text-xl font-semibold">{job.title}</h3>
+                <h3 className="text-xl font-semibold">
+                  {job.title}{" "}
+                  {job.status === "Closed" && (
+                    <span className="bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full align-middle">Closed</span>
+                  )}
+                </h3>
                 <p className="text-gray-600">{job.company} · {job.location}</p>
                 <p className="text-sm text-gray-500">{job.jobType} · {job.salary}</p>
               </div>

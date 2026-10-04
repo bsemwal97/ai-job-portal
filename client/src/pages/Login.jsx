@@ -1,7 +1,7 @@
 import { useState } from "react";
 import axios from "axios";
 import { API_BASE, errorMessage } from "../config";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 function Login() {
 
@@ -118,6 +118,10 @@ function Login() {
             />
 
           </div>
+
+          <Link to="/forgot-password" className="block text-right text-sm text-gray-500 hover:text-black">
+            Forgot password?
+          </Link>
 
           <button
             disabled={loading}

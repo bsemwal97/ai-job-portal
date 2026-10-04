@@ -1,0 +1,28 @@
+# Render blueprint for the API. Frontend: deploy /client on Vercel (set VITE_API_URL to this API's URL).
+services:
+  - type: web
+    name: ai-job-portal-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: node index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: MONGO_URI        # MongoDB Atlas connection string
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_URL       # your Vercel URL, e.g. https://my-app.vercel.app
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false

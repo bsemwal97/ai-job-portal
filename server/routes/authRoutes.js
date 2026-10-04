@@ -1,9 +1,11 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
+const { sendMailSafe, resetPasswordEmail } = require("../utils/mailer");
 
 const router = express.Router();
 
@@ -79,6 +81,66 @@ router.post("/login", async (req, res) => {
   }
 
   res.json({ token: signToken(user), user: publicUser(user) });
+});
+
+
+const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
+
+
+// FORGOT PASSWORD
+// Always answers the same way, so nobody can use this to discover which emails are registered.
+router.post("/forgot-password", async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || !EMAIL_REGEX.test(email)) {
+    return res.status(400).json({ message: "Enter a valid email address" });
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+  if (user) {
+    const token = crypto.randomBytes(32).toString("hex");
+
+    user.resetPasswordHash = sha256(token);
+    user.resetPasswordExpires = new Date(Date.now() + 30 * 60 * 1000);
+    await user.save();
+
+    const clientUrl = (process.env.CLIENT_URL || "http://localhost:5173").split(",")[0].trim();
+
+    sendMailSafe({ to: user.email, ...resetPasswordEmail(user.name, `${clientUrl}/reset-password/${token}`) });
+  }
+
+  res.json({ message: "If that email is registered, a reset link has been sent." });
+});
+
+
+// RESET PASSWORD
+router.post("/reset-password/:token", async (req, res) => {
+  const { password } = req.body;
+
+  if (!/^[a-f0-9]{64}$/.test(req.params.token)) {
+    return res.status(400).json({ message: "Invalid or expired reset link" });
+  }
+
+  if (!password || password.length < 8) {
+    return res.status(400).json({ message: "Password must be at least 8 characters" });
+  }
+
+  const user = await User.findOne({
+    resetPasswordHash: sha256(req.params.token),
+    resetPasswordExpires: { $gt: new Date() },
+  }).select("+resetPasswordHash +resetPasswordExpires");
+
+  if (!user) {
+    return res.status(400).json({ message: "Invalid or expired reset link" });
+  }
+
+  user.password = await bcrypt.hash(password, 10);
+  user.resetPasswordHash = undefined;       // one-time use
+  user.resetPasswordExpires = undefined;
+  await user.save();
+
+  res.json({ message: "Password updated. You can log in now." });
 });
 
 

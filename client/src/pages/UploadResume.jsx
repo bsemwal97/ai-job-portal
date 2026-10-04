@@ -90,6 +90,27 @@ function UploadResume() {
   };
 
 
+  const handleDeleteFile = async () => {
+
+    if (!window.confirm("Delete your uploaded resume file?")) return;
+
+    try {
+
+      await axios.delete(`${API_BASE}/api/upload/resume`);
+
+      setCurrent("");
+      setAnalysis(null);
+      setAiMessage(null);
+      setMessage({ ok: true, text: "Resume file deleted" });
+
+    } catch (err) {
+
+      setMessage({ ok: false, text: errorMessage(err, "Could not delete file") });
+
+    }
+  };
+
+
   const handleAnalyze = async () => {
 
     try {
@@ -155,7 +176,10 @@ function UploadResume() {
 
         {current && (
           <p className="text-sm text-gray-600">
-            Current file: <span className="font-medium">{current}</span>
+            Current file: <span className="font-medium">{current}</span>{" "}
+            <button type="button" onClick={handleDeleteFile} className="text-red-600 underline ml-2">
+              Delete
+            </button>
           </p>
         )}
 

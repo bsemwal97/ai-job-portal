@@ -312,7 +312,7 @@ router.get("/recommended-jobs", requireRole("Candidate"), handle(async (req, res
     return res.status(400).json({ message: "Save your resume in the Resume Builder first" });
   }
 
-  const jobs = await Job.find().sort({ createdAt: -1 }).limit(30);
+  const jobs = await Job.find({ status: { $ne: "Closed" } }).sort({ createdAt: -1 }).limit(30);
 
   if (jobs.length === 0) {
     return res.json({ recommendations: [] });
@@ -587,5 +587,33 @@ router.post(
     res.json({ gaps });
   })
 );
+
+// NEW: AI QUALITY CHECK of a job post before publishing (recruiter)
+router.post("/check-job-post", requireRole("Recruiter"), handle(async (req, res) => {
+  const { title, description, salary, skills } = req.body;
+
+  if (!title || !description) {
+    return res.status(400).json({ message: "Add a title and description first" });
+  }
+
+  const result = await askAIForJSON(
+    "You review job postings for clarity and fairness. Return a JSON object with keys: " +
+      '"score" (integer 0-100 overall quality), "issues" (array of up to 5 short strings: unclear, missing or ' +
+      'unrealistic things), "biasedPhrases" (array of exact short phrases from the posting that may discourage ' +
+      'some groups, e.g. gendered or age-related wording; empty array if none), "suggestions" (array of 3-5 ' +
+      "short actionable strings). Also consider whether salary and key requirements are stated.",
+    `Title: ${clip(title, 150)}\nSalary: ${clip(salary, 100) || "not stated"}\n` +
+      `Skills: ${asList(skills).join(", ").slice(0, 400) || "not listed"}\n` +
+      wrap("Description", description, 5000),
+    { maxTokens: 700 }
+  );
+
+  res.json({
+    score: Math.min(Math.max(Math.round(Number(result.score)) || 0, 0), 100),
+    issues: asList(result.issues).slice(0, 5),
+    biasedPhrases: asList(result.biasedPhrases).slice(0, 8),
+    suggestions: asList(result.suggestions).slice(0, 5),
+  });
+}));
 
 module.exports = router;

@@ -75,6 +75,23 @@ router.post("/resume", authMiddleware, requireRole("Candidate"), (req, res) => {
 });
 
 
+// DELETE MY UPLOADED RESUME FILE
+router.delete("/resume", authMiddleware, requireRole("Candidate"), async (req, res) => {
+  const user = await User.findById(req.user.id);
+
+  if (!user?.resumeFile?.filename) {
+    return res.status(404).json({ message: "No resume uploaded" });
+  }
+
+  removeFile(user.resumeFile.filename);
+
+  user.resumeFile = { filename: "", originalName: "" };
+  await user.save();
+
+  res.json({ message: "Resume file deleted" });
+});
+
+
 // DOWNLOAD MY OWN RESUME
 router.get("/resume/me", authMiddleware, async (req, res) => {
   const user = await User.findById(req.user.id);

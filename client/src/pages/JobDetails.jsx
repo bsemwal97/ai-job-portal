@@ -151,6 +151,8 @@ function JobDetails() {
     );
   }
 
+  const isClosed = job.status === "Closed";
+
   const isOwner = user?.role === "Recruiter" && job.createdBy?._id === user.id;
 
   const scoreColor =
@@ -222,10 +224,10 @@ function JobDetails() {
               <button
                 type="button"
                 onClick={handleApply}
-                disabled={applying}
+                disabled={applying || isClosed}
                 className="bg-black text-white px-6 py-3 rounded-lg disabled:opacity-50"
               >
-                {applying ? "Applying..." : "Apply Now"}
+                {isClosed ? "Applications closed" : applying ? "Applying..." : "Apply Now"}
               </button>
 
               <button
