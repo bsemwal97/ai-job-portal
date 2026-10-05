@@ -54,7 +54,7 @@ AI scores are a screening aid, not a hiring decision. The recruiter always decid
 | AI | OpenAI API (model configurable, default `gpt-4.1-mini`) |
 | Auth | JWT + bcrypt, role-based access (Recruiter / Candidate) |
 | Files and email | Multer, pdf-parse, mammoth, Nodemailer |
-| Tooling | node:test, ESLint, GitHub Actions, Docker |
+| Tooling | node:test (unit + integration), ESLint, GitHub Actions, Docker |
 
 ---
 
@@ -68,7 +68,9 @@ ai-job-portal/
 │       ├── components/      Navbar, ProtectedRoute, SaveButton, JobPostChecker
 │       └── config.js        API URL, axios auth interceptor
 ├── server/
-│   ├── index.js             App setup, security middleware, error handling
+│   ├── app.js               Express app: security middleware, routes, error handling
+│   ├── index.js             Startup: env check, DB connect, listen
+│   ├── seed.js              Demo data (npm run seed)
 │   ├── models/              User, Job, Application, Resume
 │   ├── routes/              auth, jobs, applications, upload, saved, resume, ai
 │   ├── middleware/          authMiddleware (JWT + requireRole), validateObjectId
@@ -188,11 +190,26 @@ All routes are under `/api`. Protected routes need `Authorization: Bearer <token
 ## Tests and CI
 
 ```bash
-cd server && npm test        # validation, auth, role checks, AI output cleaning, file parsing, email
-cd client && npm run lint && npm run build
+# unit tests only (no database needed)
+cd server && npm test
+
+# + full-flow integration tests (WIPES the database you point it at, use a throwaway one)
+TEST_MONGO_URI=mongodb://127.0.0.1:27017/ai_job_portal_test npm test
+
+cd ../client && npm run lint && npm run build
 ```
 
-GitHub Actions runs both on every push and pull request.
+The integration tests drive the real Express app against a real database: registration and roles, job ownership, search and pagination, saved jobs, duplicate and parallel applications, status updates, closed jobs, resume upload and access control, password reset, and the AI routes (OpenAI calls are mocked, everything else is real).
+
+GitHub Actions runs everything on every push and pull request, with a MongoDB service container for the integration tests.
+
+### Demo data
+
+```bash
+cd server && npm run seed
+```
+
+Creates 8 jobs, a recruiter (`recruiter@demo.local`) and a candidate (`candidate@demo.local`), password `Demo@12345`, a resume and two applications. Safe to re-run; refuses to run when `NODE_ENV=production`.
 
 ---
 
@@ -214,7 +231,7 @@ Uploaded resume files are stored on local disk, so on free hosting they are lost
 - Rate limiting is in-memory (use Redis when running multiple instances)
 - Job search uses regex; MongoDB text or Atlas Search would scale better
 - Job matching sends recent jobs in one prompt; embeddings + vector search would scale better
-- Integration tests with a real database are not written yet
+- No end-to-end browser tests yet (for example Playwright)
 
 ---
 
